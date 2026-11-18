@@ -8,7 +8,8 @@ import { queryKeys } from '../../lib/query'
 export function DashboardPage() {
   const query = useQuery({ queryKey: queryKeys.dashboard, queryFn: dashboardApi.get })
   if (query.isLoading) return <><PageHeader title="Dashboard" description="Your RK Group portfolio at a glance." /><LoadingState /></>
-  if (query.error || !query.data) return <><PageHeader title="Dashboard" description="Your RK Group portfolio at a glance." /><ErrorState message={String(query.error)} /></>
+  if (query.error && !query.data) return <><PageHeader title="Dashboard" description="Your RK Group portfolio at a glance." /><ErrorState message="Dashboard data could not be loaded." onRetry={() => query.refetch()} /></>
+  if (!query.data) return <><PageHeader title="Dashboard" description="Your RK Group portfolio at a glance." /><ErrorState message="Dashboard data could not be loaded." onRetry={() => query.refetch()} /></>
   const d = query.data
   const cards = [
     ['Active users', d.activeUsers, Users, 'Users with application access'],
@@ -19,6 +20,7 @@ export function DashboardPage() {
   return (
     <>
       <PageHeader title="Dashboard" description="Your RK Group portfolio at a glance." />
+      {query.error && <ErrorState message="Refresh failed. Showing the last loaded dashboard data." onRetry={() => query.refetch()} />}
       <section className="metric-grid">
         {cards.map(([label, value, Icon, detail]) => <article className="metric-card" key={label}><div className="metric-icon"><Icon /></div><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>)}
       </section>

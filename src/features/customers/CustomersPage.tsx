@@ -47,42 +47,57 @@ export function CustomersPage() {
   ), [customers.data, search])
   const customer = useMemo(() => customers.data?.find((item) => item.id === customerId), [customerId, customers.data])
   const customerBookings = useMemo(() => (bookings.data ?? []).filter((booking) => booking.customer_id === customerId), [bookings.data, customerId])
+  const retryDetails = () => Promise.all([
+    customers.refetch(),
+    bookings.refetch(),
+    inventory.refetch(),
+    projects.refetch(),
+  ])
 
   function submitCustomer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (saveCustomer.isPending) return
     const data = new FormData(event.currentTarget)
     saveCustomer.mutate({
-      values: { full_name: data.get('full_name'), phone: data.get('phone'), email: data.get('email') || null, address: data.get('address') || null },
+      values: {
+        full_name: String(data.get('full_name') || '').trim(),
+        phone: String(data.get('phone') || '').trim(),
+        email: String(data.get('email') || '').trim().toLowerCase() || null,
+        address: String(data.get('address') || '').trim() || null,
+      },
       id: editing === 'new' ? undefined : editing?.id,
     })
   }
 
   function submitPayment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!paymentBooking) return
+    if (!paymentBooking || recordPayment.isPending) return
     const data = new FormData(event.currentTarget)
     recordPayment.mutate({
       bookingId: paymentBooking.id,
       amount: Number(data.get('amount')),
       paidOn: String(data.get('paid_on')),
       method: String(data.get('method')),
-      reference: String(data.get('reference') || ''),
+      reference: String(data.get('reference') || '').trim(),
     })
   }
 
-  const customerModal = editing && <Modal title={editing === 'new' ? 'Add customer' : 'Edit customer'} onClose={() => setEditing(null)}><form className="modal-form" onSubmit={submitCustomer}><div className="form-grid"><Field name="full_name" label="Full name" defaultValue={editing === 'new' ? '' : editing.full_name} required /><Field name="phone" label="Phone" defaultValue={editing === 'new' ? '' : editing.phone} minLength={8} required /><Field name="email" label="Email" type="email" defaultValue={editing === 'new' ? '' : editing.email ?? ''} /><TextAreaField name="address" label="Address" defaultValue={editing === 'new' ? '' : editing.address ?? ''} /></div><div className="modal-actions"><Button type="button" variant="secondary" onClick={() => setEditing(null)}>Cancel</Button><Button type="submit" loading={saveCustomer.isPending}>Save customer</Button></div></form></Modal>
+  const customerModal = editing && <Modal title={editing === 'new' ? 'Add customer' : 'Edit customer'} onClose={() => setEditing(null)}><form className="modal-form" onSubmit={submitCustomer}><div className="form-grid"><Field name="full_name" label="Full name" defaultValue={editing === 'new' ? '' : editing.full_name} maxLength={120} required /><Field name="phone" label="Phone" type="tel" defaultValue={editing === 'new' ? '' : editing.phone} required /><Field name="email" label="Email" type="email" defaultValue={editing === 'new' ? '' : editing.email ?? ''} maxLength={254} /><TextAreaField name="address" label="Address" defaultValue={editing === 'new' ? '' : editing.address ?? ''} maxLength={500} /></div><div className="modal-actions"><Button type="button" variant="secondary" onClick={() => setEditing(null)}>Cancel</Button><Button type="submit" loading={saveCustomer.isPending}>Save customer</Button></div></form></Modal>
 
   if (!customerId) return <>
     <PageHeader title="Customers" description="Bookings, balances and complete customer histories." actions={has('customers.create') ? <Button onClick={() => setEditing('new')}><Plus size={17} /> Add customer</Button> : undefined} />
     <div className="toolbar"><SearchField value={search} onChange={setSearch} placeholder="Search name, phone, email or address" /></div>
-    {customers.isLoading ? <LoadingState /> : customers.error ? <ErrorState message={friendlyError(customers.error)} /> : filtered.length === 0 ? <EmptyState title="No customers found" detail="Create a customer to begin a booking." /> : <div className="card table-wrap"><table><thead><tr><th>Customer</th><th>Phone</th><th>Address</th><th>Added</th><th></th></tr></thead><tbody>{filtered.map((item) => <tr className="table-row--interactive" key={item.id} onClick={() => navigate(`/customers/${item.id}`)}><td><strong>{item.full_name}</strong><small>{item.email || 'No email'}</small></td><td>{item.phone}</td><td>{item.address || '—'}</td><td>{shortDate(item.created_at)}</td><td><div className="row-actions">{has('customers.update') && <Button variant="ghost" aria-label={`Edit ${item.full_name}`} onClick={(event) => { event.stopPropagation(); setEditing(item) }}><Pencil size={17} /></Button>}<Button variant="ghost" aria-label={`Open ${item.full_name}`} onClick={(event) => { event.stopPropagation(); navigate(`/customers/${item.id}`) }}><ChevronRight size={18} /></Button></div></td></tr>)}</tbody></table></div>}
+    {customers.error && customers.data && <ErrorState message="Refresh failed. Showing the last loaded customers." onRetry={() => customers.refetch()} />}
+    {customers.isLoading ? <LoadingState /> : customers.error && !customers.data ? <ErrorState message={friendlyError(customers.error)} onRetry={() => customers.refetch()} /> : filtered.length === 0 ? <EmptyState title="No customers found" detail="Create a customer to begin a booking." /> : <div className="card table-wrap"><table><thead><tr><th>Customer</th><th>Phone</th><th>Address</th><th>Added</th><th></th></tr></thead><tbody>{filtered.map((item) => <tr className="table-row--interactive" key={item.id} onClick={() => navigate(`/customers/${item.id}`)}><td><strong>{item.full_name}</strong><small>{item.email || 'No email'}</small></td><td>{item.phone}</td><td>{item.address || '—'}</td><td>{shortDate(item.created_at)}</td><td><div className="row-actions">{has('customers.update') && <Button variant="ghost" aria-label={`Edit ${item.full_name}`} onClick={(event) => { event.stopPropagation(); setEditing(item) }}><Pencil size={17} /></Button>}<Button variant="ghost" aria-label={`Open ${item.full_name}`} onClick={(event) => { event.stopPropagation(); navigate(`/customers/${item.id}`) }}><ChevronRight size={18} /></Button></div></td></tr>)}</tbody></table></div>}
     {saveCustomer.error && <div className="toast toast--error">{friendlyError(saveCustomer.error)}</div>}
     {customerModal}
   </>
 
   if (customers.isLoading || bookings.isLoading || inventory.isLoading || projects.isLoading) return <><PageHeader title="Customer details" description="Loading bookings and property balances." /><LoadingState /></>
   const detailError = customers.error || bookings.error || inventory.error || projects.error
-  if (detailError) return <><PageHeader title="Customer details" description="Bookings and property balances." /><ErrorState message={friendlyError(detailError)} /></>
+  const detailDataMissing = !customers.data || !bookings.data || !inventory.data || !projects.data
+  if (detailError && detailDataMissing) return <><PageHeader title="Customer details" description="Bookings and property balances." /><ErrorState message={friendlyError(detailError)} onRetry={retryDetails} /></>
+  if (detailDataMissing) return <><PageHeader title="Customer details" description="Bookings and property balances." /><ErrorState message="Customer details could not be loaded." onRetry={retryDetails} /></>
   if (!customer || !inventory.data) return <><PageHeader title="Customer not found" description="This customer may have been removed." actions={<Button variant="secondary" onClick={() => navigate('/customers')}><ArrowLeft size={17} /> Customers</Button>} /><EmptyState title="No customer available" detail="Return to Customers and choose another record." /></>
 
   const propertyFor = (booking: Booking) => {
@@ -99,6 +114,7 @@ export function CustomersPage() {
       description={`${customer.phone}${customer.email ? ` · ${customer.email}` : ''}`}
       actions={<><Button variant="secondary" onClick={() => navigate('/customers')}><ArrowLeft size={17} /> Customers</Button>{has('customers.update') && <Button variant="secondary" onClick={() => setEditing(customer)}><Pencil size={16} /> Edit</Button>}</>}
     />
+    {detailError && <ErrorState message="Refresh failed. Showing the last loaded customer details." onRetry={retryDetails} />}
     <section className="customer-summary card">
       <div><span>Address</span><strong>{customer.address || 'Not provided'}</strong></div>
       <div><span>Properties booked</span><strong>{customerBookings.length}</strong></div>
@@ -119,7 +135,7 @@ export function CustomersPage() {
     {customerModal}
     {paymentBooking && <Modal title="Add payment for property" onClose={() => setPaymentBooking(null)}><form className="modal-form" onSubmit={submitPayment}>
       {(() => { const { unit, block, project } = propertyFor(paymentBooking); return <div className="payment-property-summary"><span>Selected booking</span><strong>{project?.name || 'Project'} · {block ? `Block ${block.name} · ` : ''}Property {unit?.unit_number || paymentBooking.unit?.unit_number || '—'}</strong><small>{money.format(Number(paymentBooking.outstanding || 0))} outstanding</small></div> })()}
-      <div className="form-grid"><Field name="amount" label="Amount" type="number" min={1} max={Number(paymentBooking.outstanding || 0)} step="0.01" required /><Field name="paid_on" label="Payment date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /><SelectField name="method" label="Payment method" defaultValue="bank">{availablePaymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</SelectField><Field name="reference" label="Reference number" /></div>
+      <div className="form-grid"><Field name="amount" label="Amount" type="number" min={0.01} max={Number(paymentBooking.outstanding || 0)} step="0.01" required /><Field name="paid_on" label="Payment date" type="date" max={new Date().toISOString().slice(0, 10)} defaultValue={new Date().toISOString().slice(0, 10)} required /><SelectField name="method" label="Payment method" defaultValue="bank" required>{availablePaymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</SelectField><Field name="reference" label="Reference number" maxLength={100} /></div>
       <div className="modal-actions"><Button type="button" variant="secondary" onClick={() => setPaymentBooking(null)}>Cancel</Button><Button type="submit" loading={recordPayment.isPending}>Record payment</Button></div>
     </form></Modal>}
   </>

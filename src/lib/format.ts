@@ -27,10 +27,20 @@ export function friendlyError(error: unknown) {
     : typeof error === 'object' && error && 'message' in error
       ? String(error.message)
       : String(error)
-  if (message.includes('row-level security')) return 'You do not have permission to perform this action.'
-  if (message.includes('duplicate key')) return 'A record with these details already exists.'
-  if (message.includes('JWT')) return 'Your session expired. Please sign in again.'
-  return message.replace(/^Error:\s*/, '')
+  const normalized = message.replace(/^Error:\s*/, '').toLowerCase()
+  if (/jwt|expired token|token has expired|session.*expired/.test(normalized)) return 'Your session expired. Please sign in again.'
+  if (/inactive|deactivated|disabled account/.test(normalized)) return 'This account is inactive. Contact an administrator.'
+  if (/row-level security|permission denied|unauthorized|forbidden|insufficient permission/.test(normalized)) return 'You do not have permission to perform this action.'
+  if (/invalid login credentials|invalid credentials/.test(normalized)) return 'Email or password is incorrect.'
+  if (/duplicate|already registered|already exists|user already exists/.test(normalized)) {
+    return /email|auth|registered/.test(normalized)
+      ? 'An account with this email already exists.'
+      : 'A record with the same details already exists.'
+  }
+  if (/failed to send a request|failed to fetch|network|fetch error/.test(normalized)) return 'Could not connect to the server. Check your connection and try again.'
+  if (/cash.*unavailable|unavailable.*cash/.test(normalized)) return 'Cash payments are unavailable while Live1 is inactive.'
+  if (/exceed.*outstanding|outstanding.*exceed/.test(normalized)) return 'The payment amount cannot exceed the outstanding balance.'
+  return 'Something went wrong. Please try again. If it continues, contact an administrator.'
 }
 
 export function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {

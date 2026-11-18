@@ -72,7 +72,7 @@ async function assertCashAvailable(method: string) {
 
 export const authApi = {
   async signIn(email: string, password: string) {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password })
     return unwrap(data, error)
   },
   async signOut() {
@@ -80,7 +80,7 @@ export const authApi = {
     if (error) throw error
   },
   async sendRecovery(email: string) {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
       redirectTo: `${window.location.origin}/recover`,
     })
     if (error) throw error

@@ -5,6 +5,7 @@ import { useAuth } from './app/AuthProvider'
 import { AdminLayout } from './app/AdminLayout'
 import { Button } from './components/ui'
 import { authApi } from './services/api'
+import { friendlyError } from './lib/format'
 import { LoginPage } from './features/auth/LoginPage'
 import { RecoveryPage } from './features/auth/RecoveryPage'
 
@@ -23,10 +24,12 @@ const SettingsPage = lazy(() => import('./features/settings/SettingsPage').then(
 const AuditPage = lazy(() => import('./features/audit/AuditPage').then((m) => ({ default: m.AuditPage })))
 
 function Protected({ permission, children }: { permission: string; children: ReactNode }) {
-  const { session, profile, loading, error, has } = useAuth()
+  const { session, profile, loading, error, has, reload } = useAuth()
   if (loading) return <div className="full-loader"><LoaderCircle className="spin" /><span>Loading RK Group Admin…</span></div>
   if (!session) return <Navigate to="/login" replace />
-  if (error || !profile?.is_active || !has(permission)) return <div className="access-denied"><ShieldX /><h1>Access denied</h1><p>{error || 'Your account does not have permission to access this workspace.'}</p><Button onClick={() => void authApi.signOut()}>Return to sign in</Button></div>
+  if (error) return <div className="access-denied"><ShieldX /><h1>Could not load your access</h1><p>{friendlyError(error)}</p><Button variant="secondary" onClick={() => void reload()}>Retry</Button><Button onClick={() => void authApi.signOut()}>Return to sign in</Button></div>
+  if (!profile?.is_active) return <div className="access-denied"><ShieldX /><h1>Account inactive</h1><p>Your account is inactive. Contact an administrator for access.</p><Button onClick={() => void authApi.signOut()}>Return to sign in</Button></div>
+  if (!has(permission)) return <div className="access-denied"><ShieldX /><h1>Access denied</h1><p>Your account does not have permission to access this workspace.</p><Button onClick={() => void authApi.signOut()}>Return to sign in</Button></div>
   return <AdminLayout><Suspense fallback={<div className="loading"><LoaderCircle className="spin" /> Loading module…</div>}>{children}</Suspense></AdminLayout>
 }
 
@@ -46,7 +49,7 @@ export default function App() {
     <Route path="/customers" element={protectedRoute('customers.view', <CustomersPage />)} />
     <Route path="/customers/:customerId" element={protectedRoute('customers.view', <CustomersPage />)} />
     <Route path="/bookings" element={protectedRoute('bookings.view', <BookingsPage />)} />
-    <Route path="/bookings/:bookingId" element={protectedRoute('projects.view', <BookingDetailsPage />)} />
+    <Route path="/bookings/:bookingId" element={protectedRoute('bookings.view', <BookingDetailsPage />)} />
     <Route path="/collections" element={protectedRoute('payments.view', <CollectionsPage />)} />
     <Route path="/reports" element={protectedRoute('reports.view', <ReportsPage />)} />
     <Route path="/routing" element={protectedRoute('routing.view', <RoutingPage />)} />

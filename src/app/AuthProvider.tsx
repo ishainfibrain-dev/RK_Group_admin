@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { profileApi } from '../services/api'
@@ -23,42 +23,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [permissions, setPermissions] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const loadedUserId = useRef<string | null>(null)
+  const loadSequence = useRef(0)
 
-  const load = useCallback(async (nextSession: Session | null) => {
-    if (!nextSession?.user) {
+  const load = useCallback(async (nextSession: Session | null, force = false) => {
+    const userId = nextSession?.user.id
+    if (!userId) {
+      loadSequence.current += 1
+      loadedUserId.current = null
       setProfile(null)
       setPermissions([])
       setLoading(false)
       return
     }
+
+    if (!force && loadedUserId.current === userId) return
+    loadedUserId.current = userId
+    const sequence = ++loadSequence.current
     setLoading(true)
     setError(null)
     try {
       const [nextProfile, nextPermissions] = await Promise.all([
-        profileApi.get(nextSession.user.id),
+        profileApi.get(userId),
         profileApi.permissions(),
       ])
+      if (sequence !== loadSequence.current) return
       setProfile(nextProfile)
       setPermissions(nextPermissions)
     } catch (reason) {
+      if (sequence !== loadSequence.current) return
       setError(reason instanceof Error ? reason.message : String(reason))
       setProfile(null)
       setPermissions([])
     } finally {
-      setLoading(false)
+      if (sequence === loadSequence.current) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
     let mounted = true
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return
-      setSession(data.session)
-      void load(data.session)
-    })
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!mounted) return
       setSession(nextSession)
-      queueMicrotask(() => void load(nextSession))
+      queueMicrotask(() => {
+        if (mounted) void load(nextSession)
+      })
     })
     return () => {
       mounted = false
@@ -73,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     error,
     has: (permission) => permissions.includes(permission),
-    reload: () => load(session),
+    reload: () => load(session, true),
   }), [session, profile, permissions, loading, error, load])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

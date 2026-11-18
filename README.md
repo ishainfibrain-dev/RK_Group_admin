@@ -38,7 +38,18 @@ npm run build
 npm audit --audit-level=moderate
 ```
 
-The production build is written to `admin-panel/dist/`. Configure an SPA fallback to `index.html` when deploying it.
+The production build is written to `dist/`. Configure an SPA fallback to `index.html` when deploying it.
+
+## Vercel deployment
+
+Import the repository into Vercel with the repository root as the project root and use:
+
+- Framework preset: Vite
+- Build command: `npm run build`
+- Output directory: `dist`
+- Install command: `npm ci`
+
+Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` to the Vercel Production, Preview, and Development environments as needed, then redeploy. The repository's `vercel.json` sends client-side routes to `index.html`. Never configure a Supabase secret or service-role key as a Vercel `VITE_*` variable.
 
 ## Supabase backend
 
@@ -51,16 +62,16 @@ Deployed Edge Function:
 
 - `admin-users` with JWT verification enabled
 
-The function uses Supabase-managed server secrets and accepts browser calls only from `ADMIN_ALLOWED_ORIGINS`. Its safe local default is:
+The function uses Supabase-managed server secrets and accepts browser calls only from `ADMIN_ALLOWED_ORIGINS`. Set this secret in the existing Supabase project to the approved local and production origins:
 
 ```text
-http://localhost:5173,http://127.0.0.1:5173
+https://rk-group-admin-c72p.vercel.app,http://localhost:5173,http://127.0.0.1:5173
 ```
 
-Before production web deployment, set `ADMIN_ALLOWED_ORIGINS` to the exact HTTPS admin-panel origin and add this Supabase Auth redirect URL:
+Add this Supabase Auth redirect URL:
 
 ```text
-https://YOUR_ADMIN_DOMAIN/recover
+https://rk-group-admin-c72p.vercel.app/recover
 ```
 
 ## Roles

@@ -8,6 +8,7 @@ import {
 import { useAuth } from './AuthProvider'
 import { Button, Modal } from '../components/ui'
 import { authApi } from '../services/api'
+import { friendlyError } from '../lib/format'
 
 const navigation = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, permission: 'dashboard.view' },
@@ -40,18 +41,20 @@ export function AdminLayout({ children }: { children: ReactNode }) {
     try {
       await authApi.signOut()
     } catch (error) {
-      setLogoutError(error instanceof Error ? error.message : 'Unable to sign out. Please try again.')
+      setLogoutError(friendlyError(error))
       setSigningOut(false)
     }
   }
   return (
     <div className={`admin-shell ${collapsed ? 'admin-shell--collapsed' : ''}`}>
-      {open && <button className="nav-scrim" aria-label="Close menu" onClick={() => setOpen(false)} />}
-      <aside className={`sidebar ${open ? 'sidebar--open' : ''} ${collapsed ? 'sidebar--collapsed' : ''}`}>
+      {open && <button className="nav-scrim" aria-label="Close navigation" onClick={() => setOpen(false)} />}
+      <aside className={`sidebar ${open ? 'sidebar--open' : ''} ${collapsed ? 'sidebar--collapsed' : ''}`} aria-label="Primary navigation">
         <button
           className="sidebar-toggle"
           onClick={() => setCollapsed((value) => !value)}
           aria-label={collapsed ? 'Show navigation drawer' : 'Hide navigation drawer'}
+          aria-expanded={!collapsed}
+          aria-controls="primary-navigation"
           title={collapsed ? 'Show navigation drawer' : 'Hide navigation drawer'}
         >
           {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
@@ -59,9 +62,9 @@ export function AdminLayout({ children }: { children: ReactNode }) {
         <div className="brand">
           <img src="/rk-logo.png" alt="RK Group" />
           <div><strong>RK Group</strong><span>Admin workspace</span></div>
-          <button className="icon-button sidebar-close" onClick={() => setOpen(false)}><X /></button>
+          <button className="icon-button sidebar-close" onClick={() => setOpen(false)} aria-label="Close navigation"><X /></button>
         </div>
-        <nav>
+        <nav id="primary-navigation">
           {navigation.filter((item) => has(item.permission)).map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} end={to === '/'} onClick={() => setOpen(false)}>
               <Icon size={19} /><span>{label}</span><ChevronRight size={16} />
@@ -77,7 +80,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
         </div>
       </aside>
       <section className="admin-main">
-        <div className="mobile-bar"><button className="icon-button" onClick={() => setOpen(true)}><Menu /></button><strong>{current}</strong></div>
+        <div className="mobile-bar"><button className="icon-button" onClick={() => setOpen(true)} aria-label="Open navigation" aria-expanded={open} aria-controls="primary-navigation"><Menu /></button><strong>{current}</strong></div>
         <main>{children}</main>
       </section>
       {confirmingLogout && <Modal title="Confirm logout" onClose={closeLogout} width={440}>

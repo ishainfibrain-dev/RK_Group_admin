@@ -26,7 +26,7 @@ export function LoginPage() {
   async function recover() {
     if (!email.trim()) { setError('Enter your email address first.'); return }
     setBusy(true); setError('')
-    try { await authApi.sendRecovery(email.trim()); setMessage('Password recovery instructions have been sent.') }
+    try { await authApi.sendRecovery(email.trim().toLowerCase()); setMessage('Password recovery instructions have been sent.') }
     catch (reason) { setError(friendlyError(reason)) }
     finally { setBusy(false) }
   }

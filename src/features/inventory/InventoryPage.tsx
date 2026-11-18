@@ -24,14 +24,20 @@ export function InventoryPage() {
   const inventory = useQuery({ queryKey: queryKeys.inventory, queryFn: inventoryApi.list })
   const bookings = useQuery({ queryKey: queryKeys.bookings, queryFn: bookingsApi.list })
   const customers = useQuery({ queryKey: queryKeys.customers, queryFn: customersApi.list })
+  const retryDetails = () => Promise.all([
+    projects.refetch(),
+    inventory.refetch(),
+    bookings.refetch(),
+    customers.refetch(),
+  ])
   const mutation = useMutation({
     mutationFn: async (form: HTMLFormElement) => {
       const data = new FormData(form)
       if (!action) return
-      if (action.type === 'block') await inventoryApi.addBlock(action.project, String(data.get('name')))
-      if (action.type === 'floor') await inventoryApi.addFloor(action.block, Number(data.get('floor_number')), String(data.get('label')))
+      if (action.type === 'block') await inventoryApi.addBlock(action.project, String(data.get('name') || '').trim())
+      if (action.type === 'floor') await inventoryApi.addFloor(action.block, Number(data.get('floor_number')), String(data.get('label') || '').trim())
       if (action.type === 'unit') await inventoryApi.addUnit(action.floor, {
-        unit_number: String(data.get('unit_number')),
+        unit_number: String(data.get('unit_number') || '').trim(),
         unit_kind: String(data.get('unit_kind')) as 'flat' | 'office',
         area_sqft: Number(data.get('area_sqft')) || null,
         list_price: Number(data.get('list_price')) || null,
@@ -65,7 +71,10 @@ export function InventoryPage() {
 
   const project = useMemo(() => projects.data?.find((item) => item.id === projectId), [projectId, projects.data])
   if (projects.isLoading || inventory.isLoading || bookings.isLoading || customers.isLoading) return <><PageHeader title="Project details" description="Loading blocks, floors and properties." /><LoadingState /></>
-  if (projects.error || inventory.error || bookings.error || customers.error || !inventory.data) return <><PageHeader title="Project details" description="Blocks, floors and properties." /><ErrorState message={friendlyError(projects.error || inventory.error || bookings.error || customers.error)} /></>
+  const dataError = projects.error || inventory.error || bookings.error || customers.error
+  const dataMissing = !projects.data || !inventory.data || !bookings.data || !customers.data
+  if (dataError && dataMissing) return <><PageHeader title="Project details" description="Blocks, floors and properties." /><ErrorState message={friendlyError(dataError)} onRetry={retryDetails} /></>
+  if (dataMissing) return <><PageHeader title="Project details" description="Blocks, floors and properties." /><ErrorState message="Project inventory could not be loaded." onRetry={retryDetails} /></>
 
   const { blocks, floors, units } = inventory.data
   const bookedUnits = new Map((bookings.data ?? []).filter((booking) => booking.status !== 'cancelled').map((booking) => [booking.unit_id, booking]))
@@ -75,11 +84,12 @@ export function InventoryPage() {
     const projectUnits = units.filter((unit) => projectFloors.some((floor) => floor.id === unit.floor_id))
     return { projectBlocks, projectFloors, projectUnits }
   }
-  const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); mutation.mutate(event.currentTarget) }
+  const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); if (!mutation.isPending) mutation.mutate(event.currentTarget) }
 
   if (!projectId) {
     return <>
       <PageHeader title="Inventory" description="Select a project to manage its blocks, floors and properties." />
+      {dataError && <ErrorState message="Refresh failed. Showing the last loaded inventory." onRetry={retryDetails} />}
       {(projects.data ?? []).length === 0 ? <EmptyState title="No projects" detail="Create a project before adding inventory." /> : <section className="inventory-project-grid">{projects.data?.map((item) => {
         const { projectBlocks, projectFloors, projectUnits } = projectInventory(item)
         return <button className="inventory-project-card card" key={item.id} onClick={() => navigate(`/projects/${item.id}`)}>
@@ -108,6 +118,7 @@ export function InventoryPage() {
       description={`${project.location || 'Location not set'} · ${project.category} inventory`}
       actions={<><Button variant="secondary" onClick={() => navigate('/projects')}><ArrowLeft size={17} /> All projects</Button>{has('inventory.manage') && <Button onClick={() => setAction({ type: 'block', project })}><Plus size={16} /> Add block</Button>}</>}
     />
+    {dataError && <ErrorState message="Refresh failed. Showing the last loaded project inventory." onRetry={retryDetails} />}
     <section className="card inventory-project inventory-project--detail">
       <div className="inventory-metrics">
         <div><Building /><strong>{projectBlocks.length}</strong><span>Blocks</span></div>
@@ -128,13 +139,13 @@ export function InventoryPage() {
               className={`unit-slot unit-slot--${status}`}
               key={unit.id}
               title={booking ? `View ${booking.customer?.full_name || 'customer'} details` : unit.list_price ? money.format(unit.list_price) : ''}
-              disabled={status === 'maintenance'}
+              disabled={status === 'maintenance' || (available && !has('bookings.create'))}
               onClick={() => {
                 if (booking) {
                   navigate(`/bookings/${booking.id}`)
                   return
                 }
-                if (available) {
+                if (available && has('bookings.create')) {
                   setSelectedCustomerId('')
                   setBookingUnit(unit)
                 }
@@ -147,14 +158,15 @@ export function InventoryPage() {
     </section>
     {(mutation.error || bookingMutation.error || customerMutation.error) && <div className="toast toast--error">{friendlyError(mutation.error || bookingMutation.error || customerMutation.error)}</div>}
     {action && <Modal title={`Add ${action.type === 'unit' ? 'property' : action.type}`} onClose={() => setAction(null)}><form className="modal-form" onSubmit={submit}>
-      {action.type === 'block' && <Field name="name" label="Block name" placeholder="A" required />}
-      {action.type === 'floor' && <div className="form-grid"><Field name="floor_number" label="Floor number" type="number" min={-5} max={250} required /><Field name="label" label="Floor label" placeholder="Floor 1" required /></div>}
-      {action.type === 'unit' && <div className="form-grid"><Field name="unit_number" label="Property number" required /><SelectField name="unit_kind" label="Property type"><option value="flat">Flat</option><option value="office">Office</option></SelectField><Field name="area_sqft" label="Area (sq ft)" type="number" min={1} step="0.01" /><Field name="list_price" label="List price" type="number" min={0} step="0.01" /><SelectField name="inventory_status" label="Status"><option value="available">Available</option><option value="maintenance">Maintenance</option></SelectField></div>}
+      {action.type === 'block' && <Field name="name" label="Block name" placeholder="A" maxLength={40} required />}
+      {action.type === 'floor' && <div className="form-grid"><Field name="floor_number" label="Floor number" type="number" min={0} max={250} step={1} required /><Field name="label" label="Floor label" placeholder="Floor 1" maxLength={80} required /></div>}
+      {action.type === 'unit' && <div className="form-grid"><Field name="unit_number" label="Property number" maxLength={40} required /><SelectField name="unit_kind" label="Property type"><option value="flat">Flat</option><option value="office">Office</option></SelectField><Field name="area_sqft" label="Area (sq ft)" type="number" min={1} step="0.01" /><Field name="list_price" label="List price" type="number" min={0} step="0.01" /><SelectField name="inventory_status" label="Status"><option value="available">Available</option><option value="maintenance">Maintenance</option></SelectField></div>}
       <div className="modal-actions"><Button type="button" variant="secondary" onClick={() => setAction(null)}>Cancel</Button><Button type="submit" loading={mutation.isPending}>Add {action.type === 'unit' ? 'property' : action.type}</Button></div>
     </form></Modal>}
     {bookingUnit && !addingCustomer && <Modal title="Add booking" onClose={() => { setBookingUnit(null); setSelectedCustomerId('') }}><form className="modal-form" onSubmit={(event) => {
       event.preventDefault()
       const data = new FormData(event.currentTarget)
+      if (bookingMutation.isPending) return
       bookingMutation.mutate({
         unitId: bookingUnit.id,
         customerId: String(data.get('customer_id')),
@@ -163,19 +175,20 @@ export function InventoryPage() {
       })
     }}>
       <div className="booking-slot-summary"><span>Selected property</span><strong>{project.name} · Property {bookingUnit.unit_number}</strong><small>{bookingUnit.list_price ? `${money.format(bookingUnit.list_price)} list price` : 'List price not set'}</small></div>
-      <div className="form-grid"><div className="booking-customer-field"><SelectField name="customer_id" label="Customer" required value={selectedCustomerId} onChange={(event) => setSelectedCustomerId(event.target.value)}><option value="" disabled>Select customer</option>{customers.data?.map((customer) => <option key={customer.id} value={customer.id}>{customer.full_name} · {customer.phone}</option>)}</SelectField><Button type="button" variant="secondary" className="booking-customer-add" onClick={() => setAddingCustomer(true)}><Plus size={15} /> Add new customer</Button></div><Field name="agreement_value" label="Agreement value" type="number" min={1} step="0.01" defaultValue={bookingUnit.list_price ?? ''} required /><Field name="booked_on" label="Booking date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></div>
+      <div className="form-grid"><div className="booking-customer-field"><SelectField name="customer_id" label="Customer" required value={selectedCustomerId} onChange={(event) => setSelectedCustomerId(event.target.value)}><option value="" disabled>Select customer</option>{customers.data?.map((customer) => <option key={customer.id} value={customer.id}>{customer.full_name} · {customer.phone}</option>)}</SelectField>{has('customers.create') && <Button type="button" variant="secondary" className="booking-customer-add" onClick={() => setAddingCustomer(true)}><Plus size={15} /> Add new customer</Button>}</div><Field name="agreement_value" label="Agreement value" type="number" min={0.01} step="0.01" defaultValue={bookingUnit.list_price ?? ''} required /><Field name="booked_on" label="Booking date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></div>
       <p className="form-note">This slot will change to the booked color immediately after the booking is created.</p>
       <div className="modal-actions"><Button type="button" variant="secondary" onClick={() => { setBookingUnit(null); setSelectedCustomerId('') }}>Cancel</Button><Button type="submit" loading={bookingMutation.isPending}>Create booking</Button></div>
     </form></Modal>}
     {bookingUnit && addingCustomer && <Modal title="Add customer" onClose={() => setAddingCustomer(false)}><form className="modal-form" onSubmit={(event) => {
       event.preventDefault()
+      if (customerMutation.isPending) return
       const data = new FormData(event.currentTarget)
       customerMutation.mutate({
         full_name: String(data.get('full_name')).trim(),
         phone: String(data.get('phone')).trim(),
-        email: String(data.get('email') || '').trim() || null,
+        email: String(data.get('email') || '').trim().toLowerCase() || null,
         address: String(data.get('address') || '').trim() || null,
       })
-    }}><div className="form-grid"><Field name="full_name" label="Full name" required autoFocus /><Field name="phone" label="Phone" minLength={8} required /><Field name="email" label="Email" type="email" /><TextAreaField name="address" label="Address" /></div><p className="form-note">After saving, this customer will be selected automatically for the booking.</p><div className="modal-actions"><Button type="button" variant="secondary" onClick={() => setAddingCustomer(false)}>Back to booking</Button><Button type="submit" loading={customerMutation.isPending}>Save customer</Button></div></form></Modal>}
+    }}><div className="form-grid"><Field name="full_name" label="Full name" maxLength={120} required autoFocus /><Field name="phone" label="Phone" type="tel" required /><Field name="email" label="Email" type="email" maxLength={254} /><TextAreaField name="address" label="Address" maxLength={500} /></div><p className="form-note">After saving, this customer will be selected automatically for the booking.</p><div className="modal-actions"><Button type="button" variant="secondary" onClick={() => setAddingCustomer(false)}>Back to booking</Button><Button type="submit" loading={customerMutation.isPending}>Save customer</Button></div></form></Modal>}
   </>
 }

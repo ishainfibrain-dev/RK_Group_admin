@@ -24,6 +24,13 @@ export function BookingDetailsPage() {
   const customers = useQuery({ queryKey: queryKeys.customers, queryFn: customersApi.list })
   const inventory = useQuery({ queryKey: queryKeys.inventory, queryFn: inventoryApi.list })
   const projects = useQuery({ queryKey: queryKeys.projects, queryFn: projectsApi.list })
+  const retryDetails = () => Promise.all([
+    bookings.refetch(),
+    payments.refetch(),
+    customers.refetch(),
+    inventory.refetch(),
+    projects.refetch(),
+  ])
   const recordPayment = useMutation({
     mutationFn: paymentsApi.record,
     onSuccess: () => {
@@ -46,7 +53,9 @@ export function BookingDetailsPage() {
   const booking = useMemo(() => bookings.data?.find((item) => item.id === bookingId), [bookingId, bookings.data])
   if (bookings.isLoading || payments.isLoading || customers.isLoading || inventory.isLoading || projects.isLoading) return <><PageHeader title="Booking details" description="Loading property and payment history." /><LoadingState /></>
   const error = bookings.error || payments.error || customers.error || inventory.error || projects.error
-  if (error || !inventory.data) return <><PageHeader title="Booking details" description="Property, financials and payment history." /><ErrorState message={friendlyError(error)} /></>
+  const dataMissing = !bookings.data || !payments.data || !customers.data || !inventory.data || !projects.data
+  if (error && dataMissing) return <><PageHeader title="Booking details" description="Property, financials and payment history." /><ErrorState message={friendlyError(error)} onRetry={retryDetails} /></>
+  if (dataMissing) return <><PageHeader title="Booking details" description="Property, financials and payment history." /><ErrorState message="Booking details could not be loaded." onRetry={retryDetails} /></>
   if (!booking) return <><PageHeader title="Booking not found" description="This booking may have been cancelled or removed." actions={<Button variant="secondary" onClick={() => navigate('/projects')}><ArrowLeft size={17} /> Projects</Button>} /><EmptyState title="No booking available" detail="Return to Projects and select another booked property." /></>
 
   const customer = customers.data?.find((item) => item.id === booking.customer_id)
@@ -56,35 +65,37 @@ export function BookingDetailsPage() {
   const project = projects.data?.find((item) => item.id === block?.project_id)
   const bookingPayments = (payments.data ?? []).filter((payment) => payment.booking_id === booking.id && payment.status === 'posted')
   const outstanding = Number(booking.outstanding ?? 0)
-  const canRecordPayment = booking.status === 'active' && outstanding > 0
+  const canRecordPayment = booking.status === 'active' && outstanding > 0 && has('payments.create')
 
   function submitPayment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (recordPayment.isPending) return
     const data = new FormData(event.currentTarget)
     recordPayment.mutate({
       bookingId: booking!.id,
       amount: Number(data.get('amount')),
       paidOn: String(data.get('paid_on')),
       method: String(data.get('method')),
-      reference: String(data.get('reference') || ''),
+      reference: String(data.get('reference') || '').trim(),
     })
   }
 
   function submitPaymentEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!visibleEditingPayment) return
+    if (!visibleEditingPayment || replacePayment.isPending) return
     const data = new FormData(event.currentTarget)
     replacePayment.mutate({
       paymentId: visibleEditingPayment.id,
       amount: Number(data.get('amount')),
       paidOn: String(data.get('paid_on')),
       method: String(data.get('method')),
-      reference: String(data.get('reference') || ''),
+      reference: String(data.get('reference') || '').trim(),
     })
   }
 
   return <>
     <PageHeader title="Booking details" description={`${project?.name || 'Project'} · Property ${unit?.unit_number || booking.unit?.unit_number || '—'}`} actions={<Button variant="secondary" onClick={() => project ? navigate(`/projects/${project.id}`) : navigate(-1)}><ArrowLeft size={17} /> Back to project</Button>} />
+    {error && <ErrorState message="Refresh failed. Showing the last loaded booking details." onRetry={retryDetails} />}
     <section className="booking-detail-shell">
       <div className="booking-detail-identity">
         <div><p className="eyebrow">{project?.category || unit?.unit_kind || 'Property'}</p><h2>{customer?.full_name || booking.customer?.full_name || 'Customer'}</h2><p>{unit?.unit_kind || 'property'} {unit?.unit_number || booking.unit?.unit_number || '—'}{block ? ` · Block ${block.name}` : ''}{floor ? ` · ${floor.label}` : ''}</p></div>
@@ -108,12 +119,12 @@ export function BookingDetailsPage() {
     {(recordPayment.error || replacePayment.error) && <div className="toast toast--error">{friendlyError(recordPayment.error || replacePayment.error)}</div>}
     {recordingPayment && <Modal title="Record payment" onClose={() => setRecordingPayment(false)}><form className="modal-form" onSubmit={submitPayment}>
       <div className="payment-property-summary"><span>Selected booking</span><strong>{project?.name || 'Project'} · Property {unit?.unit_number || booking.unit?.unit_number || '—'}</strong><small>{money.format(outstanding)} outstanding</small></div>
-      <div className="form-grid"><Field name="amount" label="Amount" type="number" min={1} max={outstanding} step="0.01" required /><Field name="paid_on" label="Payment date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /><SelectField name="method" label="Payment method" defaultValue="bank">{availablePaymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</SelectField><Field name="reference" label="Reference number" /></div>
+      <div className="form-grid"><Field name="amount" label="Amount" type="number" min={0.01} max={outstanding} step="0.01" required /><Field name="paid_on" label="Payment date" type="date" max={new Date().toISOString().slice(0, 10)} defaultValue={new Date().toISOString().slice(0, 10)} required /><SelectField name="method" label="Payment method" defaultValue="bank" required>{availablePaymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</SelectField><Field name="reference" label="Reference number" maxLength={100} /></div>
       <div className="modal-actions"><Button type="button" variant="secondary" onClick={() => setRecordingPayment(false)}>Cancel</Button><Button type="submit" loading={recordPayment.isPending}>Record payment</Button></div>
     </form></Modal>}
     {visibleEditingPayment && <Modal title="Edit payment entry" onClose={() => setEditingPayment(null)}><form className="modal-form" onSubmit={submitPaymentEdit}>
       <div className="payment-property-summary"><span>Selected receipt</span><strong>{titleCase(visibleEditingPayment.method)} · {shortDate(visibleEditingPayment.paid_on)}</strong><small>{project?.name || 'Project'} · Property {unit?.unit_number || booking.unit?.unit_number || '—'}</small></div>
-      <div className="form-grid"><Field name="amount" label="Amount" type="number" min={1} max={outstanding + Number(visibleEditingPayment.amount)} step="0.01" defaultValue={visibleEditingPayment.amount} required /><Field name="paid_on" label="Payment date" type="date" defaultValue={visibleEditingPayment.paid_on} required /><SelectField name="method" label="Payment method" defaultValue={visibleEditingPayment.method}>{availablePaymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</SelectField><Field name="reference" label="Reference number" defaultValue={visibleEditingPayment.reference_number ?? ''} /></div>
+      <div className="form-grid"><Field name="amount" label="Amount" type="number" min={0.01} max={outstanding + Number(visibleEditingPayment.amount)} step="0.01" defaultValue={visibleEditingPayment.amount} required /><Field name="paid_on" label="Payment date" type="date" max={new Date().toISOString().slice(0, 10)} defaultValue={visibleEditingPayment.paid_on} required /><SelectField name="method" label="Payment method" defaultValue={visibleEditingPayment.method} required>{availablePaymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</SelectField><Field name="reference" label="Reference number" maxLength={100} defaultValue={visibleEditingPayment.reference_number ?? ''} /></div>
       <p className="form-note">Saving preserves the original receipt in the audit history and creates a corrected replacement.</p>
       <div className="modal-actions"><Button type="button" variant="secondary" onClick={() => setEditingPayment(null)}>Cancel</Button><Button type="submit" loading={replacePayment.isPending}>Save changes</Button></div>
     </form></Modal>}
