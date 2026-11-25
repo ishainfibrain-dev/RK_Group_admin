@@ -1,4 +1,4 @@
-import { X, Search, LoaderCircle } from 'lucide-react'
+import { X, Search, LoaderCircle, Eye, EyeOff } from 'lucide-react'
 import { useEffect, useId, useState, type ButtonHTMLAttributes, type ClipboardEvent, type FormEvent, type InputHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 
 type ValidatedControl = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
@@ -63,8 +63,10 @@ export function Button({ className = '', variant = 'primary', loading, children,
   )
 }
 
-export function Field({ label, error, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string; error?: string }) {
+export function Field({ label, error, showPasswordToggle = true, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string; error?: string; showPasswordToggle?: boolean }) {
   const [validationError, setValidationError] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const isPassword = props.type === 'password' && showPasswordToggle
   const required = props.required === true
   const numeric = props.type === 'number'
   const phone = props.type === 'tel'
@@ -108,23 +110,50 @@ export function Field({ label, error, ...props }: InputHTMLAttributes<HTMLInputE
     props.onChange?.(event)
   }
   const errorId = `${props.id ?? props.name ?? generatedId}-error`
+  const inputNode = (
+    <input
+      {...props}
+      type={isPassword ? (showPassword ? 'text' : 'password') : props.type}
+      inputMode={phone ? 'tel' : numeric ? 'decimal' : props.inputMode}
+      pattern={phone ? '[+]91[ -]?[0-9]{10}|[0-9]{10}' : props.pattern}
+      maxLength={phone ? 14 : props.maxLength}
+      aria-required={required}
+      aria-invalid={Boolean(message) || props['aria-invalid']}
+      aria-describedby={message && errorId ? [props['aria-describedby'], errorId].filter(Boolean).join(' ') : props['aria-describedby']}
+      onChange={onChange}
+      onBlur={onBlur}
+      onInvalid={onInvalid}
+      onKeyDown={onKeyDown}
+      onPaste={onPaste}
+    />
+  )
+
   return (
     <label className="field">
       <span>{label}{required && <b className="field-required" aria-hidden="true">*</b>}</span>
-      <input
-        {...props}
-        inputMode={phone ? 'tel' : numeric ? 'decimal' : props.inputMode}
-        pattern={phone ? '[+]91[ -]?[0-9]{10}|[0-9]{10}' : props.pattern}
-        maxLength={phone ? 14 : props.maxLength}
-        aria-required={required}
-        aria-invalid={Boolean(message) || props['aria-invalid']}
-        aria-describedby={message && errorId ? [props['aria-describedby'], errorId].filter(Boolean).join(' ') : props['aria-describedby']}
-        onChange={onChange}
-        onBlur={onBlur}
-        onInvalid={onInvalid}
-        onKeyDown={onKeyDown}
-        onPaste={onPaste}
-      />
+      {isPassword ? (
+        <div className="field__control">
+          {inputNode}
+          <button
+            type="button"
+            className="field__password-toggle"
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            title={showPassword ? 'Hide password' : 'Show password'}
+            disabled={props.disabled}
+            tabIndex={props.disabled ? -1 : 0}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              setShowPassword((prev) => !prev)
+            }}
+          >
+            {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+          </button>
+        </div>
+      ) : (
+        inputNode
+      )}
       {message && <small id={errorId} className="field__error" role="alert">{message}</small>}
     </label>
   )

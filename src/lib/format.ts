@@ -37,6 +37,9 @@ export function friendlyError(error: unknown) {
       ? 'An account with this email already exists.'
       : 'A record with the same details already exists.'
   }
+  if (/foreign key|violates foreign key|referenced by|is still referenced/.test(normalized)) {
+    return 'Cannot delete this record because it is referenced by existing bookings or data.'
+  }
   if (/failed to send a request|failed to fetch|network|fetch error/.test(normalized)) return 'Could not connect to the server. Check your connection and try again.'
   if (/cash.*unavailable|unavailable.*cash/.test(normalized)) return 'Cash payments are unavailable while Live1 is inactive.'
   if (/exceed.*outstanding|outstanding.*exceed/.test(normalized)) return 'The payment amount cannot exceed the outstanding balance.'

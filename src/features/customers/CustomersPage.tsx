@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ChevronRight, CreditCard, Pencil, Plus } from 'lucide-react'
+import { ArrowLeft, ChevronRight, CreditCard, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../app/AuthProvider'
 import { usePaymentRouting } from '../../app/PaymentRoutingProvider'
@@ -21,6 +21,7 @@ export function CustomersPage() {
   const inventory = useQuery({ queryKey: queryKeys.inventory, queryFn: inventoryApi.list, enabled: Boolean(customerId) })
   const projects = useQuery({ queryKey: queryKeys.projects, queryFn: projectsApi.list, enabled: Boolean(customerId) })
   const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState<Customer | 'new' | null>(null)
   const [paymentBooking, setPaymentBooking] = useState<Booking | null>(null)
 
@@ -29,6 +30,20 @@ export function CustomersPage() {
     onSuccess: () => {
       setEditing(null)
       void client.invalidateQueries({ queryKey: queryKeys.customers })
+    },
+  })
+  const deleteCustomer = useMutation({
+    mutationFn: (ids: string | string[]) => customersApi.delete(ids),
+    onSuccess: (_, variables) => {
+      setEditing(null)
+      const deletedIds = new Set(Array.isArray(variables) ? variables : [variables])
+      setSelected((prev) => {
+        const next = new Set(prev)
+        deletedIds.forEach((id) => next.delete(id))
+        return next
+      })
+      void client.invalidateQueries({ queryKey: queryKeys.customers })
+      if (customerId && deletedIds.has(customerId)) navigate('/customers')
     },
   })
   const recordPayment = useMutation({
@@ -82,14 +97,39 @@ export function CustomersPage() {
     })
   }
 
-  const customerModal = editing && <Modal title={editing === 'new' ? 'Add customer' : 'Edit customer'} onClose={() => setEditing(null)}><form className="modal-form" onSubmit={submitCustomer}><div className="form-grid"><Field name="full_name" label="Full name" defaultValue={editing === 'new' ? '' : editing.full_name} maxLength={120} required /><Field name="phone" label="Phone" type="tel" defaultValue={editing === 'new' ? '' : editing.phone} required /><Field name="email" label="Email" type="email" defaultValue={editing === 'new' ? '' : editing.email ?? ''} maxLength={254} /><TextAreaField name="address" label="Address" defaultValue={editing === 'new' ? '' : editing.address ?? ''} maxLength={500} /></div><div className="modal-actions"><Button type="button" variant="secondary" onClick={() => setEditing(null)}>Cancel</Button><Button type="submit" loading={saveCustomer.isPending}>Save customer</Button></div></form></Modal>
+  const customerModal = editing && <Modal title={editing === 'new' ? 'Add customer' : 'Edit customer'} onClose={() => setEditing(null)}><form className="modal-form" onSubmit={submitCustomer}><div className="form-grid"><Field name="full_name" label="Full name" defaultValue={editing === 'new' ? '' : editing.full_name} maxLength={120} required /><Field name="phone" label="Phone" type="tel" defaultValue={editing === 'new' ? '' : editing.phone} required /><Field name="email" label="Email" type="email" defaultValue={editing === 'new' ? '' : editing.email ?? ''} maxLength={254} /><TextAreaField name="address" label="Address" defaultValue={editing === 'new' ? '' : editing.address ?? ''} maxLength={500} /></div><div className="modal-actions">{editing !== 'new' && has('customers.update') && <Button type="button" variant="danger" style={{ marginRight: 'auto' }} disabled={deleteCustomer.isPending || saveCustomer.isPending} onClick={() => { if (window.confirm(`Are you sure you want to delete customer "${editing.full_name}"? This action cannot be undone.`)) { deleteCustomer.mutate(editing.id) } }}>Delete customer</Button>}<Button type="button" variant="secondary" onClick={() => setEditing(null)}>Cancel</Button><Button type="submit" loading={saveCustomer.isPending}>Save customer</Button></div></form></Modal>
 
   if (!customerId) return <>
     <PageHeader title="Customers" description="Bookings, balances and complete customer histories." actions={has('customers.create') ? <Button onClick={() => setEditing('new')}><Plus size={17} /> Add customer</Button> : undefined} />
     <div className="toolbar"><SearchField value={search} onChange={setSearch} placeholder="Search name, phone, email or address" /></div>
+    {selected.size > 0 && (
+      <div className="bulk-toolbar card">
+        <div className="bulk-toolbar__info">
+          <span><strong>{selected.size}</strong> customer{selected.size > 1 ? 's' : ''} selected</span>
+          <button type="button" className="text-button" onClick={() => setSelected(new Set())}>Clear selection</button>
+        </div>
+        <div className="bulk-toolbar__actions">
+          {has('customers.update') && (
+            <Button
+              variant="danger"
+              disabled={deleteCustomer.isPending}
+              loading={deleteCustomer.isPending}
+              onClick={() => {
+                const count = selected.size
+                if (window.confirm(`Are you sure you want to delete ${count} selected customer${count > 1 ? 's' : ''}? This action cannot be undone.`)) {
+                  deleteCustomer.mutate([...selected])
+                }
+              }}
+            >
+              <Trash2 size={16} /> Delete selected ({selected.size})
+            </Button>
+          )}
+        </div>
+      </div>
+    )}
     {customers.error && customers.data && <ErrorState message="Refresh failed. Showing the last loaded customers." onRetry={() => customers.refetch()} />}
-    {customers.isLoading ? <LoadingState /> : customers.error && !customers.data ? <ErrorState message={friendlyError(customers.error)} onRetry={() => customers.refetch()} /> : filtered.length === 0 ? <EmptyState title="No customers found" detail="Create a customer to begin a booking." /> : <div className="card table-wrap"><table><thead><tr><th>Customer</th><th>Phone</th><th>Address</th><th>Added</th><th></th></tr></thead><tbody>{filtered.map((item) => <tr className="table-row--interactive" key={item.id} onClick={() => navigate(`/customers/${item.id}`)}><td><strong>{item.full_name}</strong><small>{item.email || 'No email'}</small></td><td>{item.phone}</td><td>{item.address || '—'}</td><td>{shortDate(item.created_at)}</td><td><div className="row-actions">{has('customers.update') && <Button variant="ghost" aria-label={`Edit ${item.full_name}`} onClick={(event) => { event.stopPropagation(); setEditing(item) }}><Pencil size={17} /></Button>}<Button variant="ghost" aria-label={`Open ${item.full_name}`} onClick={(event) => { event.stopPropagation(); navigate(`/customers/${item.id}`) }}><ChevronRight size={18} /></Button></div></td></tr>)}</tbody></table></div>}
-    {saveCustomer.error && <div className="toast toast--error">{friendlyError(saveCustomer.error)}</div>}
+    {customers.isLoading ? <LoadingState /> : customers.error && !customers.data ? <ErrorState message={friendlyError(customers.error)} onRetry={() => customers.refetch()} /> : filtered.length === 0 ? <EmptyState title="No customers found" detail="Create a customer to begin a booking." /> : <div className="card table-wrap"><table><thead><tr><th className="table-checkbox-cell"><input type="checkbox" className="table-checkbox" aria-label="Select all customers" checked={filtered.length > 0 && filtered.every((item) => selected.has(item.id))} ref={(el) => { if (el) { const some = filtered.some((item) => selected.has(item.id)); const all = filtered.length > 0 && filtered.every((item) => selected.has(item.id)); el.indeterminate = some && !all } }} onChange={(e) => { if (e.target.checked) { setSelected(new Set([...selected, ...filtered.map((item) => item.id)])) } else { const next = new Set(selected); filtered.forEach((item) => next.delete(item.id)); setSelected(next) } }} /></th><th>Customer</th><th>Phone</th><th>Address</th><th>Added</th><th></th></tr></thead><tbody>{filtered.map((item) => <tr className={`table-row--interactive ${selected.has(item.id) ? 'table-row--selected' : ''}`} key={item.id} onClick={() => navigate(`/customers/${item.id}`)}><td className="table-checkbox-cell" onClick={(event) => event.stopPropagation()}><input type="checkbox" className="table-checkbox" aria-label={`Select ${item.full_name}`} checked={selected.has(item.id)} onChange={(event) => { const next = new Set(selected); if (event.target.checked) next.add(item.id); else next.delete(item.id); setSelected(next) }} /></td><td><strong>{item.full_name}</strong><small>{item.email || 'No email'}</small></td><td>{item.phone}</td><td>{item.address || '—'}</td><td>{shortDate(item.created_at)}</td><td><div className="row-actions">{has('customers.update') && <Button variant="ghost" title={`Edit ${item.full_name}`} aria-label={`Edit ${item.full_name}`} onClick={(event) => { event.stopPropagation(); setEditing(item) }}><Pencil size={17} /></Button>}{has('customers.update') && <Button variant="ghost" className="button--ghost-danger" title={`Delete ${item.full_name}`} aria-label={`Delete ${item.full_name}`} onClick={(event) => { event.stopPropagation(); if (window.confirm(`Are you sure you want to delete customer "${item.full_name}"? This action cannot be undone.`)) { deleteCustomer.mutate(item.id) } }}><Trash2 size={17} /></Button>}<Button variant="ghost" title={`Open ${item.full_name}`} aria-label={`Open ${item.full_name}`} onClick={(event) => { event.stopPropagation(); navigate(`/customers/${item.id}`) }}><ChevronRight size={18} /></Button></div></td></tr>)}</tbody></table></div>}
+    {(saveCustomer.error || deleteCustomer.error) && <div className="toast toast--error">{friendlyError(saveCustomer.error || deleteCustomer.error)}</div>}
     {customerModal}
   </>
 
@@ -112,7 +152,7 @@ export function CustomersPage() {
     <PageHeader
       title={customer.full_name}
       description={`${customer.phone}${customer.email ? ` · ${customer.email}` : ''}`}
-      actions={<><Button variant="secondary" onClick={() => navigate('/customers')}><ArrowLeft size={17} /> Customers</Button>{has('customers.update') && <Button variant="secondary" onClick={() => setEditing(customer)}><Pencil size={16} /> Edit</Button>}</>}
+      actions={<><Button variant="secondary" onClick={() => navigate('/customers')}><ArrowLeft size={17} /> Customers</Button>{has('customers.update') && <Button variant="secondary" onClick={() => setEditing(customer)}><Pencil size={16} /> Edit</Button>}{has('customers.update') && <Button variant="danger" disabled={deleteCustomer.isPending} onClick={() => { if (window.confirm(`Are you sure you want to delete customer "${customer.full_name}"? This action cannot be undone.`)) { deleteCustomer.mutate(customer.id) } }}><Trash2 size={16} /> Delete</Button>}</>}
     />
     {detailError && <ErrorState message="Refresh failed. Showing the last loaded customer details." onRetry={retryDetails} />}
     <section className="customer-summary card">
@@ -131,7 +171,7 @@ export function CustomersPage() {
         <footer><small>Booked {shortDate(booking.booked_on)}</small>{canPay && <Button onClick={(event) => { event.stopPropagation(); setPaymentBooking(booking) }}><CreditCard size={17} /> Add payment</Button>}</footer>
       </article>
     })}</section>}
-    {(saveCustomer.error || recordPayment.error) && <div className="toast toast--error">{friendlyError(saveCustomer.error || recordPayment.error)}</div>}
+    {(saveCustomer.error || recordPayment.error || deleteCustomer.error) && <div className="toast toast--error">{friendlyError(saveCustomer.error || recordPayment.error || deleteCustomer.error)}</div>}
     {customerModal}
     {paymentBooking && <Modal title="Add payment for property" onClose={() => setPaymentBooking(null)}><form className="modal-form" onSubmit={submitPayment}>
       {(() => { const { unit, block, project } = propertyFor(paymentBooking); return <div className="payment-property-summary"><span>Selected booking</span><strong>{project?.name || 'Project'} · {block ? `Block ${block.name} · ` : ''}Property {unit?.unit_number || paymentBooking.unit?.unit_number || '—'}</strong><small>{money.format(Number(paymentBooking.outstanding || 0))} outstanding</small></div> })()}

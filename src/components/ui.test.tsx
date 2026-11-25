@@ -63,4 +63,21 @@ describe('Field validation', () => {
     expect(phone).toHaveValue('+91 9876543210')
     expect(screen.queryByText('Phone must be 10 digits, optionally prefixed with +91.')).not.toBeInTheDocument()
   })
+
+  it('toggles password visibility when the eye button is clicked', () => {
+    render(<Field label="Temporary password" name="password" type="password" required />)
+    const input = screen.getByLabelText(/Temporary password/)
+    expect(input).toHaveAttribute('type', 'password')
+
+    const toggleButton = screen.getByRole('button', { name: /show password/i })
+    expect(toggleButton).toBeInTheDocument()
+
+    fireEvent.click(toggleButton)
+    expect(input).toHaveAttribute('type', 'text')
+    expect(screen.getByRole('button', { name: /hide password/i })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /hide password/i }))
+    expect(input).toHaveAttribute('type', 'password')
+    expect(screen.getByRole('button', { name: /show password/i })).toBeInTheDocument()
+  })
 })

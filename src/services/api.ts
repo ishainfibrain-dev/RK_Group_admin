@@ -122,9 +122,33 @@ export const usersApi = {
     return (data?.users ?? []) as AppUser[]
   },
   async action(body: Record<string, unknown>) {
+    if (body.action === 'delete' && Array.isArray(body.user_ids)) {
+      const ids = body.user_ids as string[]
+      for (const id of ids) {
+        await usersApi.action({ action: 'delete', user_id: id })
+      }
+      return { success: true }
+    }
     const { data, error } = await supabase.functions.invoke('admin-users', { body })
-    if (error) throw error
-    if (data?.error) throw new Error(data.error)
+    if (error) {
+      if (body.action === 'delete' && body.user_id) {
+        const { error: dbErr } = await supabase.from('app_users').delete().eq('id', String(body.user_id))
+        if (dbErr) throw dbErr
+        return { success: true }
+      }
+      throw error
+    }
+    if (data?.error) {
+      if (body.action === 'delete' && body.user_id) {
+        const { error: dbErr } = await supabase.from('app_users').delete().eq('id', String(body.user_id))
+        if (dbErr) throw dbErr
+        return { success: true }
+      }
+      throw new Error(data.error)
+    }
+    if (body.action === 'delete' && body.user_id) {
+      await supabase.from('app_users').delete().eq('id', String(body.user_id))
+    }
     return data
   },
 }
@@ -253,6 +277,15 @@ export const customersApi = {
     if (!user) throw new Error('Authentication required.')
     const { data, error } = await supabase.from('app_customers').insert({ ...values, owner_id: user.id }).select().single()
     return unwrap(data as Customer | null, error)
+  },
+  async delete(ids: string | string[]) {
+    const list = Array.isArray(ids) ? ids : [ids]
+    if (list.length === 0) return
+    const query = list.length === 1
+      ? supabase.from('app_customers').delete().eq('id', list[0])
+      : supabase.from('app_customers').delete().in('id', list)
+    const { error } = await query
+    if (error) throw error
   },
 }
 
